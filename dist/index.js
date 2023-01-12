@@ -49,15 +49,106 @@ Object.defineProperty(exports, "__esModule", { value: true });
 var core = __importStar(require("@actions/core"));
 var lambda_1 = __importDefault(require("aws-sdk/clients/lambda"));
 var fs_1 = __importDefault(require("fs"));
+var child_process_1 = require("child_process");
+var checkIfFileExists = function (filePath) { return __awaiter(void 0, void 0, void 0, function () {
+    var err_1;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                _a.trys.push([0, 2, , 3]);
+                return [4 /*yield*/, fs_1.default.promises.stat(filePath)];
+            case 1: return [2 /*return*/, (_a.sent()).isFile()];
+            case 2:
+                err_1 = _a.sent();
+                return [2 /*return*/, false];
+            case 3: return [2 /*return*/];
+        }
+    });
+}); };
+var waitTillFilesExists = function (
+/**Path of the file to check. */
+filePath, 
+/**Check for existence every x amount of milliseconds. @default 10 */
+checkEvery, 
+/**Check until x amount of milliseconds have passed. Reject the promise after that. @default 5000 */
+checkUntil) {
+    if (checkEvery === void 0) { checkEvery = 100; }
+    if (checkUntil === void 0) { checkUntil = 5000; }
+    return __awaiter(void 0, void 0, void 0, function () {
+        var counter;
+        return __generator(this, function (_a) {
+            counter = 0 // keep track of how many times the setInterval has run
+            ;
+            return [2 /*return*/, new Promise(function (res, rej) {
+                    var id = setInterval(function () { return __awaiter(void 0, void 0, void 0, function () {
+                        var fileExists;
+                        return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0:
+                                    counter++;
+                                    return [4 /*yield*/, checkIfFileExists(filePath)];
+                                case 1:
+                                    fileExists = _a.sent();
+                                    if (fileExists) {
+                                        clearInterval(id);
+                                        res(true);
+                                    }
+                                    else {
+                                        if (counter >= checkUntil / checkEvery) {
+                                            clearInterval(id);
+                                            rej("The file " + filePath + " was not found after " + (checkEvery *
+                                                counter) /
+                                                1000 + " second(s).");
+                                        }
+                                    }
+                                    return [2 /*return*/];
+                            }
+                        });
+                    }); }, checkEvery);
+                })];
+        });
+    });
+};
 function run() {
     return __awaiter(this, void 0, void 0, function () {
-        var LayerName, zipFile, lambdaConfig, lambda, response, error_1;
+        var LayerName, zipFile, repository, repoName, targetPath, lambdaConfig, lambda, response, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
-                    _a.trys.push([0, 2, , 3]);
-                    LayerName = core.getInput('layer_name', { required: true });
-                    zipFile = core.getInput('zip_file', { required: true });
+                    _a.trys.push([0, 3, , 4]);
+                    LayerName = process.env.AWS_LAYER_NAME;
+                    if (!LayerName) {
+                        throw new Error('layer name not found.');
+                    }
+                    zipFile = 'build.zip';
+                    repository = process.env.GITHUB_REPOSITORY;
+                    repoName = repository.slice(repository.lastIndexOf('/') + 1);
+                    targetPath = "/tmp/" + repoName;
+                    core.info('Cloning repository...');
+                    child_process_1.execSync("git clone " + process.env.GITHUB_SERVER_URL + "/" + process.env.GITHUB_REPOSITORY, {
+                        cwd: '/tmp',
+                        stdio: 'inherit',
+                    });
+                    core.info('Checking out into the target branch...');
+                    child_process_1.execSync("git checkout " + process.env.GITHUB_REF_NAME, {
+                        cwd: targetPath,
+                        stdio: 'inherit',
+                    });
+                    core.info('Installing NPM packages...');
+                    child_process_1.execSync('npm install', {
+                        cwd: targetPath,
+                        stdio: 'ignore',
+                    });
+                    core.info('Zipping the package...');
+                    child_process_1.execSync("zip -r " + zipFile + " . -x .git*/*", {
+                        cwd: targetPath,
+                        stdio: 'ignore',
+                    });
+                    return [4 /*yield*/, waitTillFilesExists(targetPath + "/" + zipFile)
+                        // push the built file to AWS lambda
+                    ];
+                case 1:
+                    _a.sent();
                     lambdaConfig = {
                         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
                         apiVersion: '2015-03-31',
@@ -71,20 +162,20 @@ function run() {
                     return [4 /*yield*/, lambda
                             .publishLayerVersion({
                             Content: {
-                                ZipFile: fs_1.default.readFileSync(zipFile),
+                                ZipFile: fs_1.default.readFileSync(targetPath + "/" + zipFile),
                             },
                             LayerName: LayerName,
                         })
                             .promise()];
-                case 1:
+                case 2:
                     response = _a.sent();
                     core.info("Publish Success : " + response.LayerVersionArn);
-                    return [3 /*break*/, 3];
-                case 2:
+                    return [3 /*break*/, 4];
+                case 3:
                     error_1 = _a.sent();
                     core.setFailed(error_1);
-                    return [3 /*break*/, 3];
-                case 3: return [2 /*return*/];
+                    return [3 /*break*/, 4];
+                case 4: return [2 /*return*/];
             }
         });
     });
