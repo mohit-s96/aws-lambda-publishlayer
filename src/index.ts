@@ -82,30 +82,38 @@ async function run() {
 
         await waitTillFilesExists(`${targetPath}/${zipFile}`)
 
-        // push the built file to AWS lambda
-        const lambdaConfig: Lambda.Types.ClientConfiguration = {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            apiVersion: '2015-03-31',
-            maxRetries: 2,
+        // push the built file to AWS lambda layer
+        const lambda = new Lambda({
             region: process.env.AWS_REGION,
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
             secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            sslEnabled: true,
+        })
+
+        const params = {
+            LayerName,
+            Content: {
+                ZipFile: fs.readFileSync(`${targetPath}/${zipFile}`),
+            },
+            CompatibleRuntimes: ['nodejs18.x'],
+            CompatibleArchitectures: ['x86_64'],
         }
 
-        const lambda = new Lambda(lambdaConfig)
-
-        core.info('Publishing...')
-
-        const response = await lambda
-            .publishLayerVersion({
-                Content: {
-                    ZipFile: fs.readFileSync(`${targetPath}/${zipFile}`),
-                },
-                LayerName,
+        core.info('Publishing the layer...')
+        const response = await lambda.publishLayerVersion(params).promise()
+        core.info('Layer published successfully.')
+        core.info(`Layer published successfully. Version: ${response.Version}`)
+        const result = await lambda
+            .updateFunctionConfiguration({
+                FunctionName: 'testLambdaLayer',
+                Layers: [
+                    `arn:aws:lambda:us-east-2:620872262079:layer:${LayerName.trim()}:${
+                        response.Version
+                    }`,
+                ],
             })
             .promise()
 
-        core.info(`Publish Success : ${response.LayerVersionArn}`)
+        core.info(`Function updated successfully. Version: ${result.Version}`)
     } catch (error) {
         core.setFailed(error as any)
     }

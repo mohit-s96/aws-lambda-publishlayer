@@ -111,11 +111,11 @@ checkUntil) {
 };
 function run() {
     return __awaiter(this, void 0, void 0, function () {
-        var LayerName, zipFile, repository, repoName, targetPath, lambdaConfig, lambda, response, error_1;
+        var LayerName, zipFile, repository, repoName, targetPath, lambda, params, response, result, error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
-                    _a.trys.push([0, 3, , 4]);
+                    _a.trys.push([0, 4, , 5]);
                     LayerName = process.env.AWS_LAYER_NAME;
                     if (!LayerName) {
                         throw new Error('layer name not found.');
@@ -145,37 +145,46 @@ function run() {
                         stdio: 'ignore',
                     });
                     return [4 /*yield*/, waitTillFilesExists(targetPath + "/" + zipFile)
-                        // push the built file to AWS lambda
+                        // push the built file to AWS lambda layer
                     ];
                 case 1:
                     _a.sent();
-                    lambdaConfig = {
-                        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                        apiVersion: '2015-03-31',
-                        maxRetries: 2,
+                    lambda = new lambda_1.default({
                         region: process.env.AWS_REGION,
+                        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
                         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-                        sslEnabled: true,
+                    });
+                    params = {
+                        LayerName: LayerName,
+                        Content: {
+                            ZipFile: fs_1.default.readFileSync(targetPath + "/" + zipFile),
+                        },
+                        CompatibleRuntimes: ['nodejs18.x'],
+                        CompatibleArchitectures: ['x86_64'],
                     };
-                    lambda = new lambda_1.default(lambdaConfig);
-                    core.info('Publishing...');
-                    return [4 /*yield*/, lambda
-                            .publishLayerVersion({
-                            Content: {
-                                ZipFile: fs_1.default.readFileSync(targetPath + "/" + zipFile),
-                            },
-                            LayerName: LayerName,
-                        })
-                            .promise()];
+                    core.info('Publishing the layer...');
+                    return [4 /*yield*/, lambda.publishLayerVersion(params).promise()];
                 case 2:
                     response = _a.sent();
-                    core.info("Publish Success : " + response.LayerVersionArn);
-                    return [3 /*break*/, 4];
+                    core.info('Layer published successfully.');
+                    core.info("Layer published successfully. Version: " + response.Version);
+                    return [4 /*yield*/, lambda
+                            .updateFunctionConfiguration({
+                            FunctionName: 'testLambdaLayer',
+                            Layers: [
+                                "arn:aws:lambda:us-east-2:620872262079:layer:" + LayerName.trim() + ":" + response.Version,
+                            ],
+                        })
+                            .promise()];
                 case 3:
+                    result = _a.sent();
+                    core.info("Function updated successfully. Version: " + result.Version);
+                    return [3 /*break*/, 5];
+                case 4:
                     error_1 = _a.sent();
                     core.setFailed(error_1);
-                    return [3 /*break*/, 4];
-                case 4: return [2 /*return*/];
+                    return [3 /*break*/, 5];
+                case 5: return [2 /*return*/];
             }
         });
     });
