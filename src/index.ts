@@ -47,7 +47,7 @@ async function run() {
         if (!LayerName) {
             throw new Error('layer name not found.')
         }
-        const zipFile = 'build.zip'
+        const zipFile = 'reso-certification-etl.zip'
 
         const repository = process.env.GITHUB_REPOSITORY!
         const repoName = repository.slice(repository.lastIndexOf('/') + 1)
@@ -74,13 +74,24 @@ async function run() {
             stdio: 'ignore',
         })
 
-        core.info('Zipping the package...')
-        execSync(`zip -r ${zipFile} . -x .git*/*`, {
+        // we go up one directory and then zip the reso-certification-etl folder
+        core.info('Moving up one directory...')
+        execSync('cd ..', {
             cwd: targetPath,
             stdio: 'ignore',
         })
 
-        await waitTillFilesExists(`${targetPath}/${zipFile}`)
+        // zip the reso-certification-etl folder but exclude the .git and .github folders
+        core.info('Zipping the package...')
+        execSync(
+            `zip -r ${zipFile} ${repoName} -x ${repoName}/.git*/* ${repoName}/.github*/*`,
+            {
+                cwd: '/tmp',
+                stdio: 'ignore',
+            }
+        )
+
+        await waitTillFilesExists(`/tmp/${zipFile}`)
 
         // push the built file to AWS lambda layer
         const lambda = new Lambda({
@@ -92,7 +103,7 @@ async function run() {
         const params = {
             LayerName,
             Content: {
-                ZipFile: fs.readFileSync(`${targetPath}/${zipFile}`),
+                ZipFile: fs.readFileSync(`/tmp/${zipFile}`),
             },
             CompatibleRuntimes: ['nodejs18.x'],
             CompatibleArchitectures: ['x86_64'],
@@ -106,9 +117,7 @@ async function run() {
             .updateFunctionConfiguration({
                 FunctionName: 'testLambdaLayer',
                 Layers: [
-                    `arn:aws:lambda:us-east-2:620872262079:layer:${LayerName.trim()}:${
-                        response.Version
-                    }`,
+                    `arn:aws:lambda:us-east-2:620872262079:layer:${LayerName}:${response.Version}`,
                 ],
             })
             .promise()

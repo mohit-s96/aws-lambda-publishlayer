@@ -120,7 +120,7 @@ function run() {
                     if (!LayerName) {
                         throw new Error('layer name not found.');
                     }
-                    zipFile = 'build.zip';
+                    zipFile = 'reso-certification-etl.zip';
                     repository = process.env.GITHUB_REPOSITORY;
                     repoName = repository.slice(repository.lastIndexOf('/') + 1);
                     targetPath = "/tmp/" + repoName;
@@ -139,12 +139,19 @@ function run() {
                         cwd: targetPath,
                         stdio: 'ignore',
                     });
-                    core.info('Zipping the package...');
-                    child_process_1.execSync("zip -r " + zipFile + " . -x .git*/*", {
+                    // we go up one directory and then zip the reso-certification-etl folder
+                    core.info('Moving up one directory...');
+                    child_process_1.execSync('cd ..', {
                         cwd: targetPath,
                         stdio: 'ignore',
                     });
-                    return [4 /*yield*/, waitTillFilesExists(targetPath + "/" + zipFile)
+                    // zip the reso-certification-etl folder but exclude the .git and .github folders
+                    core.info('Zipping the package...');
+                    child_process_1.execSync("zip -r " + zipFile + " " + repoName + " -x " + repoName + "/.git*/* " + repoName + "/.github*/*", {
+                        cwd: '/tmp',
+                        stdio: 'ignore',
+                    });
+                    return [4 /*yield*/, waitTillFilesExists("/tmp/" + zipFile)
                         // push the built file to AWS lambda layer
                     ];
                 case 1:
@@ -157,7 +164,7 @@ function run() {
                     params = {
                         LayerName: LayerName,
                         Content: {
-                            ZipFile: fs_1.default.readFileSync(targetPath + "/" + zipFile),
+                            ZipFile: fs_1.default.readFileSync("/tmp/" + zipFile),
                         },
                         CompatibleRuntimes: ['nodejs18.x'],
                         CompatibleArchitectures: ['x86_64'],
@@ -172,7 +179,7 @@ function run() {
                             .updateFunctionConfiguration({
                             FunctionName: 'testLambdaLayer',
                             Layers: [
-                                "arn:aws:lambda:us-east-2:620872262079:layer:" + LayerName.trim() + ":" + response.Version,
+                                "arn:aws:lambda:us-east-2:620872262079:layer:" + LayerName + ":" + response.Version,
                             ],
                         })
                             .promise()];
